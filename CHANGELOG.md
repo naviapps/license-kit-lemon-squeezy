@@ -6,7 +6,7 @@ All notable changes to this project will be documented in this file.
 
 - Initial public package extraction.
 - Added Lemon Squeezy License API activation, validation, and deactivation
-  support for LicenseKit 1.1.0.
+  support for LicenseKit 1.2.0.
 - Focused the public API on `LemonSqueezyLicenseProvider`,
   `LemonSqueezyLicenseConfiguration`, and `LemonSqueezyLicenseScope`.
 - Added license scope checks for Lemon Squeezy store, product, and variant IDs.

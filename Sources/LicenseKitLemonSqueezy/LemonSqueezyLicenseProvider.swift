@@ -35,8 +35,18 @@ public struct LemonSqueezyLicenseProvider: LicenseProvider {
 
   /// Activates a license key.
   public func activate(
-    licenseKey: String
+    _ request: LicenseActivationRequest
   ) async throws -> LicenseActivation {
+    let licenseKey: String
+    switch request {
+    case .automatic:
+      throw LicenseProviderError.requestFailure(
+        message: "Lemon Squeezy activation requires a license key."
+      )
+    case .licenseKey(let requestedLicenseKey):
+      licenseKey = requestedLicenseKey
+    }
+
     guard let trimmedLicenseKey = licenseKey.lemonSqueezyTrimmedNonEmpty else {
       throw LicenseProviderError.requestFailure(message: "Missing license key.")
     }

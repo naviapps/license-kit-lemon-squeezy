@@ -61,7 +61,7 @@ final class LemonSqueezyLicenseProviderTests: XCTestCase {
     ])
     let provider = makeProvider(session: session)
 
-    let activation = try await provider.activate(licenseKey: "ABC-123")
+    let activation = try await provider.activate(.licenseKey("ABC-123"))
 
     XCTAssertEqual(activation.source, LemonSqueezyLicenseProvider.licenseSource)
     XCTAssertEqual(activation.licenseKey, "ABC-123")
@@ -79,10 +79,27 @@ final class LemonSqueezyLicenseProviderTests: XCTestCase {
     let provider = makeProvider(session: session)
 
     do {
-      _ = try await provider.activate(licenseKey: " \n ")
+      _ = try await provider.activate(.licenseKey(" \n "))
       XCTFail("Expected missing license key")
     } catch let error as LicenseProviderError {
       XCTAssertEqual(error, .requestFailure(message: "Missing license key."))
+    } catch {
+      XCTFail("Unexpected error: \(error)")
+    }
+  }
+
+  func testActivateRejectsAutomaticActivation() async throws {
+    let session = StubHTTPSession(queue: [])
+    let provider = makeProvider(session: session)
+
+    do {
+      _ = try await provider.activate(.automatic)
+      XCTFail("Expected automatic activation rejection")
+    } catch let error as LicenseProviderError {
+      XCTAssertEqual(
+        error,
+        .requestFailure(message: "Lemon Squeezy activation requires a license key.")
+      )
     } catch {
       XCTFail("Unexpected error: \(error)")
     }
@@ -116,7 +133,7 @@ final class LemonSqueezyLicenseProviderTests: XCTestCase {
     )
     let provider = LemonSqueezyLicenseProvider(configuration: config, session: session)
 
-    let activation = try await provider.activate(licenseKey: " ABC-123 \n")
+    let activation = try await provider.activate(.licenseKey(" ABC-123 \n"))
 
     XCTAssertEqual(activation.licenseKey, "ABC-123")
     let requests = await session.recordedRequests()
@@ -147,7 +164,7 @@ final class LemonSqueezyLicenseProviderTests: XCTestCase {
     let provider = makeProvider(session: session)
 
     do {
-      _ = try await provider.activate(licenseKey: "ABC-123")
+      _ = try await provider.activate(.licenseKey("ABC-123"))
       XCTFail("Expected activation failure")
     } catch let error as LicenseProviderError {
       XCTAssertEqual(error, .requestFailure(message: "License is disabled"))
@@ -178,7 +195,7 @@ final class LemonSqueezyLicenseProviderTests: XCTestCase {
     let provider = makeProvider(session: session)
 
     do {
-      _ = try await provider.activate(licenseKey: "ABC-123")
+      _ = try await provider.activate(.licenseKey("ABC-123"))
       XCTFail("Expected status rejection")
     } catch let error as LicenseProviderError {
       XCTAssertEqual(error, .requestFailure(message: "Activation failed."))
@@ -212,7 +229,7 @@ final class LemonSqueezyLicenseProviderTests: XCTestCase {
     let provider = makeProvider(session: session)
 
     do {
-      _ = try await provider.activate(licenseKey: "ABC-123")
+      _ = try await provider.activate(.licenseKey("ABC-123"))
       XCTFail("Expected activation limit error")
     } catch let error as LicenseProviderError {
       XCTAssertEqual(error, .activationLimitReached)
@@ -243,7 +260,7 @@ final class LemonSqueezyLicenseProviderTests: XCTestCase {
     let provider = makeProvider(session: session)
 
     do {
-      _ = try await provider.activate(licenseKey: "ABC-123")
+      _ = try await provider.activate(.licenseKey("ABC-123"))
       XCTFail("Expected activation limit error")
     } catch let error as LicenseProviderError {
       XCTAssertEqual(error, .activationLimitReached)
@@ -276,7 +293,7 @@ final class LemonSqueezyLicenseProviderTests: XCTestCase {
     let provider = makeProvider(session: session)
 
     do {
-      _ = try await provider.activate(licenseKey: "ABC-123")
+      _ = try await provider.activate(.licenseKey("ABC-123"))
       XCTFail("Expected parsing failure")
     } catch let error as LicenseProviderError {
       XCTAssertEqual(error, .responseDecodingFailure)
@@ -318,7 +335,7 @@ final class LemonSqueezyLicenseProviderTests: XCTestCase {
     )
 
     do {
-      _ = try await provider.activate(licenseKey: "ABC-123")
+      _ = try await provider.activate(.licenseKey("ABC-123"))
       XCTFail("Expected invalid license")
     } catch let error as LicenseProviderError {
       XCTAssertEqual(error, .invalidLicense)
@@ -350,7 +367,7 @@ final class LemonSqueezyLicenseProviderTests: XCTestCase {
     let provider = makeProvider(session: session)
 
     do {
-      _ = try await provider.activate(licenseKey: "ABC-123")
+      _ = try await provider.activate(.licenseKey("ABC-123"))
       XCTFail("Expected parsing failure")
     } catch let error as LicenseProviderError {
       XCTAssertEqual(error, .responseDecodingFailure)
@@ -366,7 +383,7 @@ final class LemonSqueezyLicenseProviderTests: XCTestCase {
     let provider = makeProvider(session: session, maximumRequestAttempts: 1)
 
     do {
-      _ = try await provider.activate(licenseKey: "ABC-123")
+      _ = try await provider.activate(.licenseKey("ABC-123"))
       XCTFail("Expected network error")
     } catch let error as LicenseProviderError {
       if case let .transportFailure(message) = error {
@@ -386,7 +403,7 @@ final class LemonSqueezyLicenseProviderTests: XCTestCase {
     let provider = makeProvider(session: session)
 
     do {
-      _ = try await provider.activate(licenseKey: "ABC-123")
+      _ = try await provider.activate(.licenseKey("ABC-123"))
       XCTFail("Expected cancellation")
     } catch is CancellationError {
     } catch {

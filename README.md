@@ -24,7 +24,7 @@ backend, or a separate package.
 Add the packages with Swift Package Manager:
 
 ```swift
-.package(url: "https://github.com/naviapps/license-kit.git", from: "1.1.0"),
+.package(url: "https://github.com/naviapps/license-kit.git", from: "1.2.0"),
 .package(url: "https://github.com/naviapps/license-kit-lemon-squeezy.git", from: "0.1.0")
 ```
 
@@ -67,7 +67,7 @@ let licenseManager = LicenseManager(
   )
 )
 
-try await licenseManager.activate(licenseKey: licenseKey)
+try await licenseManager.activate(.licenseKey(licenseKey))
 
 if licenseManager.isLicensed {
   // Enable licensed app behavior.
