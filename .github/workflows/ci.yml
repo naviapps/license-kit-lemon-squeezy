@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  test:
+    name: SwiftPM
+    runs-on: macos-15
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Show Swift version
+        run: swift --version
+
+      - name: Lint formatting
+        run: xcrun swift-format lint --strict --recursive --parallel --configuration .swift-format Sources Tests Package.swift
+
+      - name: Build and test
+        run: swift test -Xswiftc -strict-concurrency=complete -Xswiftc -warnings-as-errors
+
+      - name: Build supported Apple platforms
+        run: |
+          for platform in iOS tvOS watchOS visionOS; do
+            echo "Building ${platform}"
+            xcodebuild -quiet -scheme LicenseKitLemonSqueezy -destination "generic/platform=${platform}" CODE_SIGNING_ALLOWED=NO build
+          done
