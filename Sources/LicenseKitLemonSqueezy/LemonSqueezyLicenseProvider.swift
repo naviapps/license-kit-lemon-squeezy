@@ -4,21 +4,29 @@ import LicenseKit
 /// LicenseKit provider backed by Lemon Squeezy's license-key API.
 public struct LemonSqueezyLicenseProvider: LicenseProvider {
   /// Source identifier used for activations created by Lemon Squeezy.
-  public static let licenseSource = LicenseSource(rawValue: "lemon-squeezy")
+  public static let source: LicenseSource = {
+    guard let source = LicenseSource(identifier: "lemon-squeezy") else {
+      preconditionFailure("The built-in Lemon Squeezy license source is invalid.")
+    }
+    return source
+  }()
+
+  private static let mismatchedActivationMessage =
+    "Activation is not a Lemon Squeezy license activation."
 
   private let client: LemonSqueezyLicenseAPIClient
   private let activationInstanceName: String
-  private let licenseScope: LemonSqueezyLicenseScope
+  private let licenseScope: LicenseScope
   private let responseParser = LemonSqueezyLicenseAPIResponseParser()
 
   /// Creates a license-key API provider.
   public init(
-    configuration: LemonSqueezyLicenseConfiguration = .init(), session: URLSession = .shared
+    configuration: Configuration = .init(), session: URLSession = .shared
   ) {
     self.init(configuration: configuration, session: session as LemonSqueezyHTTPSession)
   }
 
-  init(configuration: LemonSqueezyLicenseConfiguration, session: LemonSqueezyHTTPSession) {
+  init(configuration: Configuration, session: LemonSqueezyHTTPSession) {
     activationInstanceName = configuration.activationInstanceName
     licenseScope = configuration.licenseScope
     client = LemonSqueezyLicenseAPIClient(
@@ -26,7 +34,7 @@ public struct LemonSqueezyLicenseProvider: LicenseProvider {
       session: session,
       retry: LemonSqueezyRetryPolicy(
         maximumAttempts: configuration.maximumRequestAttempts,
-        baseDelayMilliseconds: configuration.baseRetryDelayMilliseconds
+        baseDelay: configuration.baseRetryDelay
       )
     )
   }
@@ -94,17 +102,21 @@ public struct LemonSqueezyLicenseProvider: LicenseProvider {
     guard let variantID = context.variantID, variantID.isEmpty == false else {
       throw LemonSqueezyLicenseAPIError.responseParsingFailed
     }
-    guard let activationID = context.activationID, activationID.isEmpty == false else {
+    guard let activationIdentifier = context.activationIdentifier,
+      activationIdentifier.isEmpty == false
+    else {
       throw LemonSqueezyLicenseAPIError.responseParsingFailed
     }
 
-    return LicenseActivation(
-      source: Self.licenseSource,
-      licenseKey: context.licenseKey ?? licenseKey,
-      planID: variantID,
-      activationID: activationID,
-      activatedAt: context.activationCreatedAt ?? Date(),
-      expiresAt: context.expiresAt
+    return try Self.requireActivation(
+      LicenseActivation(
+        source: Self.source,
+        planIdentifier: variantID,
+        activatedAt: context.activationCreatedAt ?? Date(),
+        licenseKey: context.licenseKey ?? licenseKey,
+        activationIdentifier: activationIdentifier,
+        expiresAt: context.expiresAt
+      )
     )
   }
 
@@ -115,6 +127,15 @@ public struct LemonSqueezyLicenseProvider: LicenseProvider {
       return .activationLimitReached
     }
     return .requestFailure(message: context.message ?? "Activation failed.")
+  }
+
+  private static func requireActivation(_ activation: LicenseActivation?) throws
+    -> LicenseActivation
+  {
+    guard let activation else {
+      throw LemonSqueezyLicenseAPIError.responseParsingFailed
+    }
+    return activation
   }
 
   // MARK: - Deactivation
@@ -140,16 +161,20 @@ public struct LemonSqueezyLicenseProvider: LicenseProvider {
   public func deactivate(
     _ activation: LicenseActivation
   ) async throws {
+    guard Self.isLemonSqueezyActivation(activation) else {
+      throw LicenseProviderError.requestFailure(message: Self.mismatchedActivationMessage)
+    }
     guard let licenseKey = activation.licenseKey?.lemonSqueezyTrimmedNonEmpty else {
       throw LicenseProviderError.requestFailure(message: "Missing license key.")
     }
-    guard let activationID = activation.activationID?.lemonSqueezyTrimmedNonEmpty else {
+    guard let activationIdentifier = activation.activationIdentifier?.lemonSqueezyTrimmedNonEmpty
+    else {
       throw LicenseProviderError.requestFailure(message: "Missing activation ID.")
     }
     try await Self.performProviderRequest {
       try await performDeactivationRequest(
         licenseKey: licenseKey,
-        instanceID: activationID
+        instanceID: activationIdentifier
       )
     }
   }
@@ -170,18 +195,24 @@ public struct LemonSqueezyLicenseProvider: LicenseProvider {
       throw LemonSqueezyLicenseAPIError.responseParsingFailed
     }
 
+    guard isValid else {
+      return try Self.requireValidationResult(LicenseValidationResult(isValid: false))
+    }
+
     if context.hasNonActiveStatus {
-      return LicenseValidationResult(isValid: false)
+      return try Self.requireValidationResult(LicenseValidationResult(isValid: false))
     }
 
     guard licenseScope.contains(context) else {
-      return LicenseValidationResult(isValid: false)
+      return try Self.requireValidationResult(LicenseValidationResult(isValid: false))
     }
 
-    return LicenseValidationResult(
-      isValid: isValid,
-      planID: context.variantID,
-      expiresAt: context.expiresAt
+    return try Self.requireValidationResult(
+      LicenseValidationResult(
+        isValid: isValid,
+        planIdentifier: context.variantID,
+        expiresAt: context.expiresAt
+      )
     )
   }
 
@@ -190,15 +221,18 @@ public struct LemonSqueezyLicenseProvider: LicenseProvider {
     _ activation: LicenseActivation,
     validationIdentifier: String?
   ) async throws -> LicenseValidationResult {
+    guard Self.isLemonSqueezyActivation(activation) else {
+      return try Self.requireValidationResult(LicenseValidationResult(isValid: false))
+    }
     guard let licenseKey = activation.licenseKey?.lemonSqueezyTrimmedNonEmpty else {
       throw LicenseProviderError.requestFailure(message: "Missing license key.")
     }
-    let activationID = activation.activationID?.lemonSqueezyTrimmedNonEmpty
+    let activationIdentifier = activation.activationIdentifier?.lemonSqueezyTrimmedNonEmpty
     let fallbackInstanceID = validationIdentifier?.lemonSqueezyTrimmedNonEmpty
     return try await Self.performProviderRequest {
       return try await performValidationRequest(
         licenseKey: licenseKey,
-        instanceID: activationID ?? fallbackInstanceID
+        instanceID: activationIdentifier ?? fallbackInstanceID
       )
     }
   }
@@ -213,4 +247,16 @@ public struct LemonSqueezyLicenseProvider: LicenseProvider {
     }
   }
 
+  private static func requireValidationResult(_ result: LicenseValidationResult?) throws
+    -> LicenseValidationResult
+  {
+    guard let result else {
+      throw LemonSqueezyLicenseAPIError.responseParsingFailed
+    }
+    return result
+  }
+
+  private static func isLemonSqueezyActivation(_ activation: LicenseActivation) -> Bool {
+    activation.source == Self.source
+  }
 }

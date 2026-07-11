@@ -14,19 +14,19 @@ struct LemonSqueezyLicenseAPIResponseParser: Sendable {
     let licenseKeyNode = envelope.licenseKey
     let validValue = envelope.activated ?? envelope.valid
 
-    return LemonSqueezyLicenseContext(
-      licenseKey: licenseKeyNode?["key"]?.stringValue,
-      storeID: envelope.meta?["store_id"]?.stringValue,
-      productID: envelope.meta?["product_id"]?.stringValue,
-      variantID: envelope.meta?["variant_id"]?.stringValue,
-      activationID: envelope.instance?["id"]?.stringValue,
-      activationCreatedAt: parseDate(envelope.instance?["created_at"]?.stringValue),
-      expiresAt: parseDate(licenseKeyNode?["expires_at"]?.stringValue),
+    return try LemonSqueezyLicenseContext(
+      licenseKey: licenseKeyNode?.key?.lemonSqueezyTrimmedNonEmpty,
+      storeID: envelope.meta?.storeID?.normalizedValue,
+      productID: envelope.meta?.productID?.normalizedValue,
+      variantID: envelope.meta?.variantID?.normalizedValue,
+      activationIdentifier: envelope.instance?.id?.lemonSqueezyTrimmedNonEmpty,
+      activationCreatedAt: parseOptionalDate(envelope.instance?.createdAt),
+      expiresAt: parseOptionalDate(licenseKeyNode?.expiresAt),
       remainingActivations: remainingActivations(
         licenseKeyNode: licenseKeyNode
       ),
-      status: licenseKeyNode?["status"]?.stringValue,
-      isValid: validValue?.boolValue,
+      status: licenseKeyNode?.status?.lemonSqueezyTrimmedNonEmpty,
+      isValid: validValue,
       message: envelope.failureMessage
     )
   }
@@ -40,7 +40,7 @@ struct LemonSqueezyLicenseAPIResponseParser: Sendable {
     else {
       throw LemonSqueezyLicenseAPIError.responseParsingFailed
     }
-    if let deactivated = envelope.deactivated?.boolValue {
+    if let deactivated = envelope.deactivated {
       return LemonSqueezyDeactivationContext(
         succeeded: deactivated,
         message: envelope.failureMessage
@@ -50,18 +50,22 @@ struct LemonSqueezyLicenseAPIResponseParser: Sendable {
   }
 
   private func remainingActivations(
-    licenseKeyNode: [String: LemonSqueezyLicenseAPIValue]?
+    licenseKeyNode: LemonSqueezyLicenseAPIEnvelope.LicenseKey?
   ) -> Int? {
-    guard let activationLimit = nonNegativeIntValue(licenseKeyNode?["activation_limit"])
-    else { return nil }
+    guard let activationLimit = nonNegative(licenseKeyNode?.activationLimit) else { return nil }
 
-    let activationUsage =
-      nonNegativeIntValue(licenseKeyNode?["activation_usage"]) ?? 0
+    let activationUsage: Int
+    if let value = licenseKeyNode?.activationUsage {
+      guard let nonNegativeValue = nonNegative(value) else { return nil }
+      activationUsage = nonNegativeValue
+    } else {
+      activationUsage = 0
+    }
     guard activationUsage < activationLimit else { return 0 }
     return activationLimit - activationUsage
   }
 
-  private func parseDate(_ string: String?) -> Date? {
+  private func parseOptionalDate(_ string: String?) throws -> Date? {
     guard let string else { return nil }
     let isoWithFractional = ISO8601DateFormatter()
     isoWithFractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
@@ -75,20 +79,22 @@ struct LemonSqueezyLicenseAPIResponseParser: Sendable {
     sqlDateTime.locale = Locale(identifier: "en_US_POSIX")
     sqlDateTime.dateFormat = "yyyy-MM-dd HH:mm:ss"
     sqlDateTime.isLenient = false
-    sqlDateTime.timeZone = TimeZone(secondsFromGMT: 0)
+    sqlDateTime.timeZone = .gmt
     if let date = sqlDateTime.date(from: string) { return date }
 
     let dateOnly = DateFormatter()
     dateOnly.locale = Locale(identifier: "en_US_POSIX")
     dateOnly.dateFormat = "yyyy-MM-dd"
     dateOnly.isLenient = false
-    dateOnly.timeZone = TimeZone(secondsFromGMT: 0)
-    return dateOnly.date(from: string)
+    dateOnly.timeZone = .gmt
+    if let date = dateOnly.date(from: string) { return date }
+
+    throw LemonSqueezyLicenseAPIError.responseParsingFailed
   }
 
-  private func nonNegativeIntValue(_ value: LemonSqueezyLicenseAPIValue?) -> Int? {
-    guard let intValue = value?.intValue, intValue >= 0 else { return nil }
-    return intValue
+  private func nonNegative(_ value: Int?) -> Int? {
+    guard let value, value >= 0 else { return nil }
+    return value
   }
 
   // NOTE: DateFormatter / ISO8601DateFormatter instances are not guaranteed to be thread-safe.
@@ -105,7 +111,7 @@ struct LemonSqueezyLicenseContext: Sendable {
   let storeID: String?
   let productID: String?
   let variantID: String?
-  let activationID: String?
+  let activationIdentifier: String?
   let activationCreatedAt: Date?
   let expiresAt: Date?
   let remainingActivations: Int?
