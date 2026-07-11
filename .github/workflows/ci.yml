@@ -14,27 +14,65 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  test:
+  check:
     name: SwiftPM
     runs-on: macos-15
-    timeout-minutes: 20
+    timeout-minutes: 15
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v6
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Check out LicenseKit
+        uses: actions/checkout@v7
+        with:
+          repository: naviapps/license-kit
+          path: .deps/license-kit
+          persist-credentials: false
 
       - name: Show Swift version
         run: swift --version
 
-      - name: Lint formatting
-        run: xcrun swift-format lint --strict --recursive --parallel --configuration .swift-format Sources Tests Package.swift
+      - name: Run checks
+        run: make check
+        env:
+          LICENSE_KIT_PATH: ${{ github.workspace }}/.deps/license-kit
 
-      - name: Build and test
-        run: swift test -Xswiftc -strict-concurrency=complete -Xswiftc -warnings-as-errors
+  platform-build:
+    name: Release (${{ matrix.platform }})
+    runs-on: macos-15
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - iOS
+          - tvOS
+          - watchOS
+          - visionOS
 
-      - name: Build supported Apple platforms
-        run: |
-          for platform in iOS tvOS watchOS visionOS; do
-            echo "Building ${platform}"
-            xcodebuild -quiet -scheme LicenseKitLemonSqueezy -destination "generic/platform=${platform}" CODE_SIGNING_ALLOWED=NO build
-          done
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Check out LicenseKit
+        uses: actions/checkout@v7
+        with:
+          repository: naviapps/license-kit
+          path: .deps/license-kit
+          persist-credentials: false
+
+      - name: Build Release
+        run: >-
+          xcodebuild -quiet
+          -scheme LicenseKitLemonSqueezy
+          -configuration Release
+          -destination "generic/platform=${{ matrix.platform }}"
+          CODE_SIGNING_ALLOWED=NO
+          build
+        env:
+          LICENSE_KIT_PATH: ${{ github.workspace }}/.deps/license-kit

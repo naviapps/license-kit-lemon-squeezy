@@ -2,7 +2,7 @@ import Foundation
 import LicenseKit
 import XCTest
 
-@testable import LicenseKitLemonSqueezy
+import LicenseKitLemonSqueezy
 
 @MainActor
 extension LemonSqueezyLicenseProviderTests {
@@ -22,15 +22,18 @@ extension LemonSqueezyLicenseProviderTests {
       }
       """)
     let session = StubHTTPSession(queue: [
-      .success(.init(data: payload, response: makeHTTPResponse(url: url, statusCode: 200)))
+      .success(.init(data: payload, response: try makeHTTPResponse(url: url, statusCode: 200)))
     ])
     let provider = makeProvider(session: session)
 
-    let activation = LicenseActivation(
-      licenseKey: " ABC-123 \n",
-      planID: "pro_yearly",
-      activationID: " inst_1 \n"
-    )
+    let activation = try makeLicenseActivation(
+      LicenseActivation(
+        source: LemonSqueezyLicenseProvider.source,
+        planIdentifier: "variant_1",
+        activatedAt: Date(timeIntervalSince1970: 1_700_000_000),
+        licenseKey: " ABC-123 \n",
+        activationIdentifier: " inst_1 \n"
+      ))
     let response = try await provider.validate(activation, validationIdentifier: "fallback")
 
     XCTAssertFalse(response.isValid)
@@ -42,15 +45,47 @@ extension LemonSqueezyLicenseProviderTests {
     XCTAssertFalse(body?.contains("fallback") == true)
   }
 
+  func testValidateDropsPlanAndExpirationWhenExplicitlyInvalid() async throws {
+    let url = try XCTUnwrap(URL(string: "https://example.com/v1/licenses/validate"))
+    let payload = makeJSONData(
+      """
+      {
+        "valid": false,
+        "license_key": {
+          "expires_at": "2026-12-31T00:00:00Z"
+        },
+        "meta": {
+          "variant_id": "variant_2"
+        }
+      }
+      """)
+    let session = StubHTTPSession(queue: [
+      .success(.init(data: payload, response: try makeHTTPResponse(url: url, statusCode: 200)))
+    ])
+    let provider = makeProvider(session: session)
+
+    let response = try await provider.validate(
+      makeActivation(activationIdentifier: "inst_1"),
+      validationIdentifier: nil
+    )
+
+    XCTAssertFalse(response.isValid)
+    XCTAssertNil(response.planIdentifier)
+    XCTAssertNil(response.expiresAt)
+  }
+
   func testValidateRequiresLicenseKey() async throws {
     let session = StubHTTPSession(queue: [])
     let provider = makeProvider(session: session)
 
-    let activation = LicenseActivation(
-      licenseKey: " \n ",
-      planID: "pro_yearly",
-      activationID: "inst_1"
-    )
+    let activation = try makeLicenseActivation(
+      LicenseActivation(
+        source: LemonSqueezyLicenseProvider.source,
+        planIdentifier: "variant_1",
+        activatedAt: Date(timeIntervalSince1970: 1_700_000_000),
+        licenseKey: " \n ",
+        activationIdentifier: "inst_1"
+      ))
 
     do {
       _ = try await provider.validate(activation, validationIdentifier: "inst_1")
@@ -60,6 +95,26 @@ extension LemonSqueezyLicenseProviderTests {
     } catch {
       XCTFail("Unexpected error: \(error)")
     }
+  }
+
+  func testValidateReturnsFalseForNonLemonSqueezyActivationWithoutRequestingAPI() async throws {
+    let session = StubHTTPSession(queue: [])
+    let provider = makeProvider(session: session)
+    let activation = try makeLicenseActivation(
+      LicenseActivation(
+        source: try makeLicenseSource("other"),
+        planIdentifier: "variant_1",
+        activatedAt: Date(timeIntervalSince1970: 1_700_000_000),
+        licenseKey: "ABC-123",
+        activationIdentifier: "inst_1"
+      ))
+
+    let response = try await provider.validate(activation, validationIdentifier: nil)
+
+    XCTAssertFalse(response.isValid)
+    XCTAssertNil(response.planIdentifier)
+    let requests = await session.recordedRequests()
+    XCTAssertTrue(requests.isEmpty)
   }
 
   func testValidateReturnsTrueWhenExplicitlyValid() async throws {
@@ -73,22 +128,22 @@ extension LemonSqueezyLicenseProviderTests {
         },
         "meta": {
           "customer_id": "cust_3",
-          "variant_id": "starter"
+          "variant_id": "variant_2"
         }
       }
       """)
     let session = StubHTTPSession(queue: [
-      .success(.init(data: payload, response: makeHTTPResponse(url: url, statusCode: 200)))
+      .success(.init(data: payload, response: try makeHTTPResponse(url: url, statusCode: 200)))
     ])
     let provider = makeProvider(session: session)
 
     let response = try await provider.validate(
-      makeActivation(activationID: nil),
+      makeActivation(activationIdentifier: nil),
       validationIdentifier: nil
     )
 
     XCTAssertTrue(response.isValid)
-    XCTAssertEqual(response.planID, "starter")
+    XCTAssertEqual(response.planIdentifier, "variant_2")
     XCTAssertNotNil(response.expiresAt)
     let requests = await session.recordedRequests()
     let request = try XCTUnwrap(requests.first)
@@ -105,29 +160,29 @@ extension LemonSqueezyLicenseProviderTests {
         "meta": {
           "store_id": "123",
           "product_id": "456",
-          "variant_id": "starter"
+          "variant_id": "variant_2"
         }
       }
       """)
     let session = StubHTTPSession(queue: [
-      .success(.init(data: payload, response: makeHTTPResponse(url: url, statusCode: 200)))
+      .success(.init(data: payload, response: try makeHTTPResponse(url: url, statusCode: 200)))
     ])
     let provider = makeProvider(
       session: session,
-      licenseScope: LemonSqueezyLicenseScope(
+      licenseScope: LemonSqueezyLicenseProvider.LicenseScope(
         storeID: "123",
         productID: "456",
-        variantIDs: ["pro"]
+        variantIDs: ["variant_1"]
       )
     )
 
     let response = try await provider.validate(
-      makeActivation(activationID: nil),
+      makeActivation(activationIdentifier: nil),
       validationIdentifier: nil
     )
 
     XCTAssertFalse(response.isValid)
-    XCTAssertNil(response.planID)
+    XCTAssertNil(response.planIdentifier)
   }
 
   func testValidateReturnsFalseForNonActiveLicenseStatus() async throws {
@@ -140,22 +195,22 @@ extension LemonSqueezyLicenseProviderTests {
           "status": "disabled"
         },
         "meta": {
-          "variant_id": "starter"
+          "variant_id": "variant_2"
         }
       }
       """)
     let session = StubHTTPSession(queue: [
-      .success(.init(data: payload, response: makeHTTPResponse(url: url, statusCode: 200)))
+      .success(.init(data: payload, response: try makeHTTPResponse(url: url, statusCode: 200)))
     ])
     let provider = makeProvider(session: session)
 
     let response = try await provider.validate(
-      makeActivation(activationID: "inst_1"),
+      makeActivation(activationIdentifier: "inst_1"),
       validationIdentifier: nil
     )
 
     XCTAssertFalse(response.isValid)
-    XCTAssertNil(response.planID)
+    XCTAssertNil(response.planIdentifier)
   }
 
   func testValidateUsesValidationIdentifierWhenActivationIDIsMissing() async throws {
@@ -170,12 +225,12 @@ extension LemonSqueezyLicenseProviderTests {
       }
       """)
     let session = StubHTTPSession(queue: [
-      .success(.init(data: payload, response: makeHTTPResponse(url: url, statusCode: 200)))
+      .success(.init(data: payload, response: try makeHTTPResponse(url: url, statusCode: 200)))
     ])
     let provider = makeProvider(session: session)
 
     let response = try await provider.validate(
-      makeActivation(activationID: nil),
+      makeActivation(activationIdentifier: nil),
       validationIdentifier: " inst_from_protocol \n"
     )
 
@@ -201,13 +256,13 @@ extension LemonSqueezyLicenseProviderTests {
       }
       """)
     let session = StubHTTPSession(queue: [
-      .success(.init(data: payload, response: makeHTTPResponse(url: url, statusCode: 200)))
+      .success(.init(data: payload, response: try makeHTTPResponse(url: url, statusCode: 200)))
     ])
     let provider = makeProvider(session: session)
 
     do {
       _ = try await provider.validate(
-        makeActivation(activationID: nil),
+        makeActivation(activationIdentifier: nil),
         validationIdentifier: nil
       )
       XCTFail("Expected parsing failure")

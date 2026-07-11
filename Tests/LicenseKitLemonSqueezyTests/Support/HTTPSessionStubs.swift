@@ -1,4 +1,5 @@
 import Foundation
+import XCTest
 
 @testable import LicenseKitLemonSqueezy
 
@@ -38,11 +39,13 @@ func makeHTTPResponse(
   url: URL,
   statusCode: Int,
   headers: [String: String] = [:]
-) -> HTTPURLResponse {
-  HTTPURLResponse(
-    url: url,
-    statusCode: statusCode,
-    httpVersion: nil,
-    headerFields: headers
-  )!
+) throws -> HTTPURLResponse {
+  try XCTUnwrap(
+    HTTPURLResponse(
+      url: url,
+      statusCode: statusCode,
+      httpVersion: nil,
+      headerFields: headers
+    )
+  )
 }

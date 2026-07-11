@@ -4,6 +4,11 @@ struct LemonSqueezyLicenseAPIClient: Sendable {
   private let baseURL: URL
   private let transport: LemonSqueezyHTTPTransport
   private let errorMapper = LemonSqueezyLicenseAPIErrorMapper()
+  private static let formAllowedCharacters: CharacterSet = {
+    var characters = CharacterSet.alphanumerics
+    characters.insert(charactersIn: "-._*")
+    return characters
+  }()
 
   init(
     baseURL: URL,
@@ -20,7 +25,9 @@ struct LemonSqueezyLicenseAPIClient: Sendable {
       form: [
         "license_key": licenseKey,
         "instance_name": instanceName,
-      ])
+      ],
+      retryMode: .rateLimitOnly
+    )
   }
 
   func validate(licenseKey: String, instanceID: String?) async throws -> Data {
@@ -30,7 +37,11 @@ struct LemonSqueezyLicenseAPIClient: Sendable {
     if let instanceID {
       form["instance_id"] = instanceID
     }
-    return try await postForm(path: "/v1/licenses/validate", form: form)
+    return try await postForm(
+      path: "/v1/licenses/validate",
+      form: form,
+      retryMode: .rateLimitAndServerErrors
+    )
   }
 
   func deactivate(licenseKey: String, instanceID: String) async throws -> Data {
@@ -39,29 +50,30 @@ struct LemonSqueezyLicenseAPIClient: Sendable {
       form: [
         "license_key": licenseKey,
         "instance_id": instanceID,
-      ])
+      ],
+      retryMode: .rateLimitOnly
+    )
   }
 
-  private func postForm(path: String, form: [String: String]) async throws -> Data {
+  private func postForm(
+    path: String,
+    form: [String: String],
+    retryMode: LemonSqueezyHTTPRetryMode
+  ) async throws -> Data {
     guard let url = makeURL(path: path) else { throw LemonSqueezyLicenseAPIError.invalidURL }
     var request = URLRequest(url: url)
     request.httpMethod = "POST"
     request.setValue(
-      "application/x-www-form-urlencoded; charset=utf-8", forHTTPHeaderField: "Content-Type")
+      "application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
     request.setValue("application/json", forHTTPHeaderField: "Accept")
 
-    var bodyComponents = URLComponents()
-    bodyComponents.queryItems =
-      form
-      .sorted { $0.key < $1.key }
-      .map { URLQueryItem(name: $0.key, value: $0.value) }
-    guard let percentEncoded = bodyComponents.percentEncodedQuery else {
+    guard let percentEncoded = Self.formURLEncodedBody(form) else {
       throw LemonSqueezyLicenseAPIError.invalidURL
     }
     request.httpBody = Data(percentEncoded.utf8)
 
     do {
-      let (data, httpResponse) = try await transport.send(request)
+      let (data, httpResponse) = try await transport.send(request, retryMode: retryMode)
       guard (200...299).contains(httpResponse.statusCode) else {
         throw errorMapper.map(statusCode: httpResponse.statusCode, responseData: data)
       }
@@ -83,6 +95,8 @@ struct LemonSqueezyLicenseAPIClient: Sendable {
     else { return nil }
     let normalizedPath = path.hasPrefix("/") ? path : "/" + path
     components.path = appending(normalizedPath, to: baseURL.path)
+    components.user = nil
+    components.password = nil
     components.query = nil
     components.fragment = nil
     return components.url
@@ -91,6 +105,21 @@ struct LemonSqueezyLicenseAPIClient: Sendable {
   private func appending(_ component: String, to path: String) -> String {
     let base = path.hasSuffix("/") ? String(path.dropLast()) : path
     return base + component
+  }
+
+  private static func formURLEncodedBody(_ form: [String: String]) -> String? {
+    var pairs: [String] = []
+    for (key, value) in form.sorted(by: { $0.key < $1.key }) {
+      guard let encodedKey = formURLEncoded(key),
+        let encodedValue = formURLEncoded(value)
+      else { return nil }
+      pairs.append("\(encodedKey)=\(encodedValue)")
+    }
+    return pairs.joined(separator: "&")
+  }
+
+  private static func formURLEncoded(_ value: String) -> String? {
+    value.addingPercentEncoding(withAllowedCharacters: formAllowedCharacters)
   }
 
   private static func networkMessage(for error: Error) -> String {

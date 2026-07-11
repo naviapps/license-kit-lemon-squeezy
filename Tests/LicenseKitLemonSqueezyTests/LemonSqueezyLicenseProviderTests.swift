@@ -10,12 +10,12 @@ final class LemonSqueezyLicenseProviderTests: XCTestCase {
     session: LemonSqueezyHTTPSession,
     apiBaseURL: URL = URL(string: "https://example.com")!,
     maximumRequestAttempts: Int = 3,
-    licenseScope: LemonSqueezyLicenseScope = .any
+    licenseScope: LemonSqueezyLicenseProvider.LicenseScope = .any
   ) -> LemonSqueezyLicenseProvider {
-    let lemonConfig = LemonSqueezyLicenseConfiguration(
+    let lemonConfig = LemonSqueezyLicenseProvider.Configuration(
       apiBaseURL: apiBaseURL,
       maximumRequestAttempts: maximumRequestAttempts,
-      baseRetryDelayMilliseconds: 1,
+      baseRetryDelay: .milliseconds(1),
       licenseScope: licenseScope
     )
     return LemonSqueezyLicenseProvider(configuration: lemonConfig, session: session)
@@ -25,12 +25,15 @@ final class LemonSqueezyLicenseProviderTests: XCTestCase {
     Data(json.utf8)
   }
 
-  func makeActivation(activationID: String? = "inst_1") -> LicenseActivation {
-    LicenseActivation(
-      licenseKey: "ABC-123",
-      planID: "pro_yearly",
-      activationID: activationID
-    )
+  func makeActivation(activationIdentifier: String? = "inst_1") throws -> LicenseActivation {
+    try makeLicenseActivation(
+      LicenseActivation(
+        source: LemonSqueezyLicenseProvider.source,
+        planIdentifier: "variant_1",
+        activatedAt: Date(timeIntervalSince1970: 1_700_000_000),
+        licenseKey: "ABC-123",
+        activationIdentifier: activationIdentifier
+      ))
   }
 
   func testActivateReturnsLicenseActivationForActiveLicense() async throws {
@@ -52,21 +55,21 @@ final class LemonSqueezyLicenseProviderTests: XCTestCase {
         },
         "meta": {
           "customer_id": "cust_1",
-          "variant_id": "pro_yearly"
+          "variant_id": "variant_1"
         }
       }
       """)
     let session = StubHTTPSession(queue: [
-      .success(.init(data: payload, response: makeHTTPResponse(url: url, statusCode: 200)))
+      .success(.init(data: payload, response: try makeHTTPResponse(url: url, statusCode: 200)))
     ])
     let provider = makeProvider(session: session)
 
     let activation = try await provider.activate(.licenseKey("ABC-123"))
 
-    XCTAssertEqual(activation.source, LemonSqueezyLicenseProvider.licenseSource)
+    XCTAssertEqual(activation.source, LemonSqueezyLicenseProvider.source)
     XCTAssertEqual(activation.licenseKey, "ABC-123")
-    XCTAssertEqual(activation.planID, "pro_yearly")
-    XCTAssertEqual(activation.activationID, "inst_1")
+    XCTAssertEqual(activation.planIdentifier, "variant_1")
+    XCTAssertEqual(activation.activationIdentifier, "inst_1")
     XCTAssertEqual(
       ISO8601DateFormatter().string(from: activation.activatedAt),
       "2021-04-06T14:15:07Z"
@@ -119,17 +122,17 @@ final class LemonSqueezyLicenseProviderTests: XCTestCase {
           "id": "inst_1"
         },
         "meta": {
-          "variant_id": "pro_yearly"
+          "variant_id": "variant_1"
         }
       }
       """)
     let session = StubHTTPSession(queue: [
-      .success(.init(data: payload, response: makeHTTPResponse(url: url, statusCode: 200)))
+      .success(.init(data: payload, response: try makeHTTPResponse(url: url, statusCode: 200)))
     ])
-    let config = LemonSqueezyLicenseConfiguration(
+    let config = LemonSqueezyLicenseProvider.Configuration(
       apiBaseURL: URL(string: "https://example.com")!,
       activationInstanceName: "Example App",
-      baseRetryDelayMilliseconds: 1
+      baseRetryDelay: .milliseconds(1)
     )
     let provider = LemonSqueezyLicenseProvider(configuration: config, session: session)
 
@@ -154,12 +157,12 @@ final class LemonSqueezyLicenseProviderTests: XCTestCase {
           "status": "disabled"
         },
         "meta": {
-          "variant_id": "pro_yearly"
+          "variant_id": "variant_1"
         }
       }
       """)
     let session = StubHTTPSession(queue: [
-      .success(.init(data: payload, response: makeHTTPResponse(url: url, statusCode: 200)))
+      .success(.init(data: payload, response: try makeHTTPResponse(url: url, statusCode: 200)))
     ])
     let provider = makeProvider(session: session)
 
@@ -185,12 +188,12 @@ final class LemonSqueezyLicenseProviderTests: XCTestCase {
           "activation_usage": 1
         },
         "meta": {
-          "variant_id": "pro_yearly"
+          "variant_id": "variant_1"
         }
       }
       """)
     let session = StubHTTPSession(queue: [
-      .success(.init(data: payload, response: makeHTTPResponse(url: url, statusCode: 200)))
+      .success(.init(data: payload, response: try makeHTTPResponse(url: url, statusCode: 200)))
     ])
     let provider = makeProvider(session: session)
 
@@ -219,12 +222,12 @@ final class LemonSqueezyLicenseProviderTests: XCTestCase {
           "activation_usage": 1
         },
         "meta": {
-          "variant_id": "pro_yearly"
+          "variant_id": "variant_1"
         }
       }
       """)
     let session = StubHTTPSession(queue: [
-      .success(.init(data: payload, response: makeHTTPResponse(url: url, statusCode: 200)))
+      .success(.init(data: payload, response: try makeHTTPResponse(url: url, statusCode: 200)))
     ])
     let provider = makeProvider(session: session)
 
@@ -250,12 +253,12 @@ final class LemonSqueezyLicenseProviderTests: XCTestCase {
           "activation_usage": 1
         },
         "meta": {
-          "variant_id": "pro_yearly"
+          "variant_id": "variant_1"
         }
       }
       """)
     let session = StubHTTPSession(queue: [
-      .success(.init(data: payload, response: makeHTTPResponse(url: url, statusCode: 200)))
+      .success(.init(data: payload, response: try makeHTTPResponse(url: url, statusCode: 200)))
     ])
     let provider = makeProvider(session: session)
 
@@ -283,12 +286,12 @@ final class LemonSqueezyLicenseProviderTests: XCTestCase {
         },
         "meta": {
           "customer_id": "cust_1",
-          "variant_id": "pro_yearly"
+          "variant_id": "variant_1"
         }
       }
       """)
     let session = StubHTTPSession(queue: [
-      .success(.init(data: payload, response: makeHTTPResponse(url: url, statusCode: 200)))
+      .success(.init(data: payload, response: try makeHTTPResponse(url: url, statusCode: 200)))
     ])
     let provider = makeProvider(session: session)
 
@@ -318,19 +321,19 @@ final class LemonSqueezyLicenseProviderTests: XCTestCase {
         "meta": {
           "store_id": "123",
           "product_id": "456",
-          "variant_id": "starter"
+          "variant_id": "variant_2"
         }
       }
       """)
     let session = StubHTTPSession(queue: [
-      .success(.init(data: payload, response: makeHTTPResponse(url: url, statusCode: 200)))
+      .success(.init(data: payload, response: try makeHTTPResponse(url: url, statusCode: 200)))
     ])
     let provider = makeProvider(
       session: session,
-      licenseScope: LemonSqueezyLicenseScope(
+      licenseScope: LemonSqueezyLicenseProvider.LicenseScope(
         storeID: "123",
         productID: "456",
-        variantIDs: ["pro"]
+        variantIDs: ["variant_1"]
       )
     )
 
@@ -362,7 +365,7 @@ final class LemonSqueezyLicenseProviderTests: XCTestCase {
       }
       """)
     let session = StubHTTPSession(queue: [
-      .success(.init(data: payload, response: makeHTTPResponse(url: url, statusCode: 200)))
+      .success(.init(data: payload, response: try makeHTTPResponse(url: url, statusCode: 200)))
     ])
     let provider = makeProvider(session: session)
 

@@ -38,7 +38,7 @@ final class LemonSqueezyLicenseAPIResponseParserTests: XCTestCase {
     XCTAssertEqual(context.productID, "456")
     XCTAssertEqual(context.variantID, "1052797")
     XCTAssertEqual(context.status, "active")
-    XCTAssertEqual(context.activationID, "inst_1")
+    XCTAssertEqual(context.activationIdentifier, "inst_1")
     XCTAssertNotNil(context.activationCreatedAt)
     XCTAssertEqual(context.remainingActivations, 3)
     XCTAssertEqual(context.isValid, true)
@@ -70,7 +70,7 @@ final class LemonSqueezyLicenseAPIResponseParserTests: XCTestCase {
     let context = try parser.parseLicenseContext(from: data)
 
     XCTAssertEqual(context.licenseKey, "ABC-123")
-    XCTAssertEqual(context.activationID, "inst_1")
+    XCTAssertEqual(context.activationIdentifier, "inst_1")
     XCTAssertEqual(context.remainingActivations, 3)
     XCTAssertNotNil(context.expiresAt)
     XCTAssertEqual(context.isValid, true)
@@ -92,7 +92,7 @@ final class LemonSqueezyLicenseAPIResponseParserTests: XCTestCase {
         "meta": {
           "store_id": " 123 ",
           "product_id": " 456 ",
-          "variant_id": " pro ",
+          "variant_id": " variant_1 ",
           "customer_id": " cust_1 "
         }
       }
@@ -104,9 +104,9 @@ final class LemonSqueezyLicenseAPIResponseParserTests: XCTestCase {
     XCTAssertEqual(context.licenseKey, "ABC-123")
     XCTAssertEqual(context.storeID, "123")
     XCTAssertEqual(context.productID, "456")
-    XCTAssertEqual(context.variantID, "pro")
+    XCTAssertEqual(context.variantID, "variant_1")
     XCTAssertEqual(context.status, "active")
-    XCTAssertEqual(context.activationID, "inst_1")
+    XCTAssertEqual(context.activationIdentifier, "inst_1")
     XCTAssertEqual(context.remainingActivations, 3)
     XCTAssertEqual(context.isValid, true)
   }
@@ -172,7 +172,7 @@ final class LemonSqueezyLicenseAPIResponseParserTests: XCTestCase {
     XCTAssertNil(context.remainingActivations)
   }
 
-  func testIgnoresNegativeActivationUsage() throws {
+  func testRejectsNegativeActivationUsageWhenCalculatingRemainingActivations() throws {
     let json = """
       {
         "license_key": {
@@ -185,7 +185,47 @@ final class LemonSqueezyLicenseAPIResponseParserTests: XCTestCase {
     let parser = LemonSqueezyLicenseAPIResponseParser()
     let context = try parser.parseLicenseContext(from: data)
 
-    XCTAssertEqual(context.remainingActivations, 5)
+    XCTAssertNil(context.remainingActivations)
+  }
+
+  func testThrowsResponseParsingFailureForMalformedDates() {
+    let parser = LemonSqueezyLicenseAPIResponseParser()
+
+    XCTAssertThrowsError(
+      try parser.parseLicenseContext(
+        from: Data(
+          #"{ "valid": true, "license_key": { "expires_at": "not-a-date" } }"#.utf8
+        )
+      )
+    ) { error in
+      XCTAssertEqual(error as? LemonSqueezyLicenseAPIError, .responseParsingFailed)
+    }
+
+    XCTAssertThrowsError(
+      try parser.parseLicenseContext(
+        from: Data(
+          #"{ "valid": true, "instance": { "created_at": "not-a-date" } }"#.utf8
+        )
+      )
+    ) { error in
+      XCTAssertEqual(error as? LemonSqueezyLicenseAPIError, .responseParsingFailed)
+    }
+  }
+
+  func testThrowsResponseParsingFailureForInvalidNumericIdentifiers() {
+    let parser = LemonSqueezyLicenseAPIResponseParser()
+
+    for identifier in [0, -1] {
+      XCTAssertThrowsError(
+        try parser.parseLicenseContext(
+          from: Data(
+            #"{ "valid": true, "meta": { "variant_id": \#(identifier) } }"#.utf8
+          )
+        )
+      ) { error in
+        XCTAssertEqual(error as? LemonSqueezyLicenseAPIError, .responseParsingFailed)
+      }
+    }
   }
 
   func testParsesTopLevelErrorMessage() throws {
@@ -200,7 +240,7 @@ final class LemonSqueezyLicenseAPIResponseParserTests: XCTestCase {
           "activation_usage": 5
         },
         "meta": {
-          "variant_id": "pro",
+          "variant_id": "variant_1",
           "customer_id": "cust_1"
         }
       }
@@ -289,7 +329,7 @@ final class LemonSqueezyLicenseAPIResponseParserTests: XCTestCase {
       storeID: nil,
       productID: nil,
       variantID: nil,
-      activationID: nil,
+      activationIdentifier: nil,
       activationCreatedAt: nil,
       expiresAt: nil,
       remainingActivations: nil,
@@ -302,5 +342,30 @@ final class LemonSqueezyLicenseAPIResponseParserTests: XCTestCase {
     XCTAssertTrue(
       LemonSqueezyActivationLimitMessage.matches("Maximum number of activations exceeded"))
     XCTAssertFalse(LemonSqueezyActivationLimitMessage.matches("Completely different"))
+  }
+
+  func testLicenseStatusTreatsOnlyActiveAsActive() {
+    XCTAssertFalse(makeContext(status: nil).hasNonActiveStatus)
+    XCTAssertFalse(makeContext(status: "active").hasNonActiveStatus)
+    XCTAssertFalse(makeContext(status: "ACTIVE").hasNonActiveStatus)
+    XCTAssertTrue(makeContext(status: "inactive").hasNonActiveStatus)
+    XCTAssertTrue(makeContext(status: "expired").hasNonActiveStatus)
+    XCTAssertTrue(makeContext(status: "disabled").hasNonActiveStatus)
+  }
+
+  private func makeContext(status: String?) -> LemonSqueezyLicenseContext {
+    LemonSqueezyLicenseContext(
+      licenseKey: nil,
+      storeID: nil,
+      productID: nil,
+      variantID: nil,
+      activationIdentifier: nil,
+      activationCreatedAt: nil,
+      expiresAt: nil,
+      remainingActivations: nil,
+      status: status,
+      isValid: nil,
+      message: nil
+    )
   }
 }

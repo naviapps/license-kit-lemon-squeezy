@@ -1,65 +1,60 @@
 import Foundation
+import LicenseKitLemonSqueezy
 import XCTest
 
-@testable import LicenseKitLemonSqueezy
-
-final class LemonSqueezyLicenseConfigurationTests: XCTestCase {
+final class LemonSqueezyLicenseProviderConfigurationTests: XCTestCase {
   func testDefaultLicenseConfigurationValues() {
-    let config = LemonSqueezyLicenseConfiguration()
+    let config = LemonSqueezyLicenseProvider.Configuration()
 
-    XCTAssertEqual(
-      LemonSqueezyLicenseConfiguration.defaultAPIBaseURL,
-      URL(string: "https://api.lemonsqueezy.com")!
-    )
-    XCTAssertEqual(config.apiBaseURL, LemonSqueezyLicenseConfiguration.defaultAPIBaseURL)
+    XCTAssertEqual(config.apiBaseURL, URL(string: "https://api.lemonsqueezy.com")!)
     XCTAssertEqual(config.activationInstanceName, "LicenseKit")
     XCTAssertEqual(config.maximumRequestAttempts, 3)
-    XCTAssertEqual(config.baseRetryDelayMilliseconds, 200)
+    XCTAssertEqual(config.baseRetryDelay, .milliseconds(200))
     XCTAssertEqual(config.licenseScope, .any)
   }
 
   func testLicenseConfigurationPreservesBaseURLRetryValuesAndLicenseScope() {
-    let config = LemonSqueezyLicenseConfiguration(
+    let config = LemonSqueezyLicenseProvider.Configuration(
       apiBaseURL: URL(string: "https://api.example.com")!,
       activationInstanceName: "  Example App  ",
       maximumRequestAttempts: 2,
-      baseRetryDelayMilliseconds: 50,
-      licenseScope: LemonSqueezyLicenseScope(
+      baseRetryDelay: .milliseconds(50),
+      licenseScope: LemonSqueezyLicenseProvider.LicenseScope(
         storeID: "123",
         productID: "456",
-        variantIDs: ["starter", "pro"]
+        variantIDs: ["variant_1", "variant_2"]
       )
     )
 
     XCTAssertEqual(config.apiBaseURL, URL(string: "https://api.example.com")!)
     XCTAssertEqual(config.activationInstanceName, "Example App")
     XCTAssertEqual(config.maximumRequestAttempts, 2)
-    XCTAssertEqual(config.baseRetryDelayMilliseconds, 50)
+    XCTAssertEqual(config.baseRetryDelay, .milliseconds(50))
     XCTAssertEqual(
       config.licenseScope,
-      LemonSqueezyLicenseScope(
+      LemonSqueezyLicenseProvider.LicenseScope(
         storeID: "123",
         productID: "456",
-        variantIDs: ["starter", "pro"]
+        variantIDs: ["variant_1", "variant_2"]
       )
     )
   }
 
   func testLicenseConfigurationBlankActivationNameFallsBackToDefault() {
-    let config = LemonSqueezyLicenseConfiguration(activationInstanceName: "   ")
+    let config = LemonSqueezyLicenseProvider.Configuration(activationInstanceName: "   ")
 
     XCTAssertEqual(config.activationInstanceName, "LicenseKit")
   }
 
   func testLicenseConfigurationNormalizesNonPositiveRetryValues() {
     for value in [-1, 0] {
-      let config = LemonSqueezyLicenseConfiguration(
+      let config = LemonSqueezyLicenseProvider.Configuration(
         maximumRequestAttempts: value,
-        baseRetryDelayMilliseconds: value
+        baseRetryDelay: .seconds(value)
       )
 
       XCTAssertEqual(config.maximumRequestAttempts, 1)
-      XCTAssertEqual(config.baseRetryDelayMilliseconds, 1)
+      XCTAssertEqual(config.baseRetryDelay, .milliseconds(1))
     }
   }
 }

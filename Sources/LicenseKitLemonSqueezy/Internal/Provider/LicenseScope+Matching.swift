@@ -1,4 +1,4 @@
-extension LemonSqueezyLicenseScope {
+extension LemonSqueezyLicenseProvider.LicenseScope {
   func contains(_ context: LemonSqueezyLicenseContext) -> Bool {
     if let storeID, context.storeID != storeID {
       return false

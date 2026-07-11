@@ -1,14 +1,25 @@
-// swift-tools-version: 5.10
+// swift-tools-version: 6.0
 import PackageDescription
+
+func naviappsPackage(
+  _ repository: String,
+  localPathEnvironmentKey: String,
+  from version: Version
+) -> Package.Dependency {
+  if let localPath = Context.environment[localPathEnvironmentKey], !localPath.isEmpty {
+    return .package(path: localPath)
+  }
+
+  return .package(url: "https://github.com/naviapps/\(repository).git", from: version)
+}
 
 let package = Package(
   name: "LicenseKitLemonSqueezy",
-  defaultLocalization: "en",
   platforms: [
-    .iOS(.v15),
-    .macOS(.v12),
-    .tvOS(.v15),
-    .watchOS(.v8),
+    .iOS(.v16),
+    .macOS(.v14),
+    .tvOS(.v16),
+    .watchOS(.v9),
     .visionOS(.v1),
   ],
   products: [
@@ -18,22 +29,25 @@ let package = Package(
     )
   ],
   dependencies: [
-    .package(url: "https://github.com/naviapps/license-kit.git", from: "1.2.0")
+    naviappsPackage(
+      "license-kit",
+      localPathEnvironmentKey: "LICENSE_KIT_PATH",
+      from: "2.0.0"
+    )
   ],
-
   targets: [
     .target(
       name: "LicenseKitLemonSqueezy",
       dependencies: [
         .product(name: "LicenseKit", package: "license-kit")
-      ],
-      path: "Sources/LicenseKitLemonSqueezy"
+      ]
     ),
     .testTarget(
       name: "LicenseKitLemonSqueezyTests",
-      dependencies: ["LicenseKitLemonSqueezy"],
-      path: "Tests/LicenseKitLemonSqueezyTests"
+      dependencies: [
+        "LicenseKitLemonSqueezy",
+        .product(name: "LicenseKit", package: "license-kit"),
+      ]
     ),
-  ],
-  swiftLanguageVersions: [.v5]
+  ]
 )
