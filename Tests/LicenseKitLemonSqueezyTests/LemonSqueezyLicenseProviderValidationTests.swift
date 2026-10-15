@@ -6,6 +6,31 @@ import LicenseKitLemonSqueezy
 
 @MainActor
 extension LemonSqueezyLicenseProviderTests {
+  func testExpiredClientRejectionInvalidatesManagerWithoutOfflineGrace() async throws {
+    let url = try XCTUnwrap(URL(string: "https://example.com/v1/licenses/validate"))
+    let session = StubHTTPSession(queue: [
+      .success(
+        .init(
+          data: makeJSONData(#"{"error":"Your license key is expired."}"#),
+          response: try makeHTTPResponse(url: url, statusCode: 400)
+        ))
+    ])
+    let storage = ExpiryTestActivationStorage()
+    let manager = LicenseManager(
+      provider: makeProvider(session: session), activationStorage: storage,
+      restorePersistedActivation: false
+    )
+    try manager.applyActivation(makeActivation(activationIdentifier: "inst_1"))
+
+    let result = try await manager.refresh()
+
+    XCTAssertEqual(result.outcome, .invalid)
+    XCTAssertFalse(manager.plan.isLicensed)
+    XCTAssertEqual(manager.state.lastRefreshFailure?.reason, .invalidLicense)
+    XCTAssertNil(manager.state.gracePeriodExpiresAt)
+    XCTAssertNil(try storage.load())
+  }
+
   func testValidateUsesStoredActivationIDAndReturnsFalseWhenExplicitlyInvalid() async throws {
     let url = try XCTUnwrap(URL(string: "https://example.com/v1/licenses/validate"))
     let payload = makeJSONData(
@@ -271,5 +296,22 @@ extension LemonSqueezyLicenseProviderTests {
     } catch {
       XCTFail("Unexpected error: \(error)")
     }
+  }
+}
+
+private final class ExpiryTestActivationStorage: LicenseActivationStorage, @unchecked Sendable {
+  private let lock = NSLock()
+  private var activation: LicenseActivation?
+
+  func save(_ activation: LicenseActivation) throws {
+    lock.withLock { self.activation = activation }
+  }
+
+  func load() throws -> LicenseActivation? {
+    lock.withLock { activation }
+  }
+
+  func delete() throws {
+    lock.withLock { activation = nil }
   }
 }

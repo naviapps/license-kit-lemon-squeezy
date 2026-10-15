@@ -15,22 +15,18 @@ struct LemonSqueezyLicenseAPIErrorMapper: Sendable {
       return .serverFailure(statusCode: statusCode)
     }
 
-    if statusCode == 422 {
-      if let message,
-        LemonSqueezyActivationLimitMessage.matches(message)
-      {
-        return .activationLimitReached
-      }
-      if let message {
-        return .requestFailure(message: message)
-      }
-    }
-
     if (500...599).contains(statusCode) {
       return .serverFailure(statusCode: statusCode)
     }
 
     if (400...499).contains(statusCode) {
+      // An explicit expiry rejection is authoritative, not an offline failure.
+      if let message, message.lowercased().contains("license key is expired") {
+        return .invalidLicense
+      }
+      if let message, LemonSqueezyActivationLimitMessage.matches(message) {
+        return .activationLimitReached
+      }
       return .requestFailure(message: message ?? Self.fallbackRequestFailureMessage)
     }
 
