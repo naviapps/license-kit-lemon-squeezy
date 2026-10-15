@@ -241,6 +241,24 @@ final class LemonSqueezyLicenseProviderTests: XCTestCase {
     }
   }
 
+  func testActivateReportsActivationLimitFromBadRequest() async throws {
+    let url = try XCTUnwrap(URL(string: "https://example.com/v1/licenses/activate"))
+    let payload = makeJSONData(
+      #"{"activated":false,"error":"This license key has reached the activation limit."}"#
+    )
+    let session = StubHTTPSession(queue: [
+      .success(.init(data: payload, response: try makeHTTPResponse(url: url, statusCode: 400)))
+    ])
+    let provider = makeProvider(session: session)
+
+    do {
+      _ = try await provider.activate(.licenseKey("ABC-123"))
+      XCTFail("Expected activation limit error")
+    } catch let error as LicenseProviderError {
+      XCTAssertEqual(error, .activationLimitReached)
+    }
+  }
+
   func testActivateUsesActivationCountsWhenActivationLimitMessageIsMissing() async throws {
     let url = try XCTUnwrap(URL(string: "https://example.com/v1/licenses/activate"))
     let payload = makeJSONData(

@@ -6,7 +6,14 @@ Released versions follow semantic versioning.
 
 ## [Unreleased]
 
-No changes yet.
+### Fixed
+
+- Treat explicit expired-license rejections on HTTP client errors as invalid
+  licenses, preventing rejected keys from entering offline grace. Keep rate-limit,
+  server and unrelated-request failure handling unchanged.
+- Map recognized activation-limit messages on HTTP client-error responses to
+  `activationLimitReached`, including HTTP 400 and 409 as well as 422. Invalid-license,
+  rate-limit and server-failure handling retain their existing precedence.
 
 ## [2.0.0] - 2026-07-12
 

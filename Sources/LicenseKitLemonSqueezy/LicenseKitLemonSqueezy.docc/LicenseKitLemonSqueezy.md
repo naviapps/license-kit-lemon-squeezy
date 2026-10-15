@@ -73,14 +73,26 @@ license keys issued for another Lemon Squeezy store, product, or variant. Use
 ``LemonSqueezyLicenseProvider/deactivate(_:)`` when an activation should be removed, such as during
 sign-out or device transfer.
 
+Explicit client-error messages saying a license key is expired map to
+`LicenseProviderError.invalidLicense`, so LicenseKit removes the rejected
+activation instead of granting offline grace. HTTP `429` and `5xx` retain their
+recoverable rate-limit/server handling, and unrelated request errors retain
+their existing classification.
+
+Recognized activation-limit messages on client-error responses map to
+`LicenseProviderError.activationLimitReached`, including HTTP `400`, `409`, and `422`.
+HTTP `404` retains invalid-license handling; `429` and `5xx` retain rate-limit and
+server-failure handling.
+
 ## Rate Limits
 
-Lemon Squeezy rate limits the License API. ``LemonSqueezyLicenseProvider``
-retries `429` and server-error responses using `Retry-After` when present and
-exponential backoff otherwise. Apps should still avoid tight refresh loops and
-let `LicenseManager` and `LicenseRefreshPolicy`
-control routine validation. Transport failures are surfaced to the caller
-instead of being retried automatically.
+``LemonSqueezyLicenseProvider/Configuration/maximumRequestAttempts`` includes the first
+attempt and bounds automatic retries. HTTP `429` responses may be retried for all three
+operations. HTTP `5xx` responses are retried only for validation. Activation and deactivation
+avoid automatic server-error retries because the remote operation may already have changed state.
+Valid `Retry-After` delays are honored; otherwise delay uses exponential backoff.
+Transport failures are returned without automatic retry. Host apps schedule validation with
+LicenseKit's `needsRefresh()` policy; `refresh()` itself is an explicit request.
 
 ## Security
 

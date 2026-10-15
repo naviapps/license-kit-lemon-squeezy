@@ -7,30 +7,72 @@ final class LemonSqueezyLicenseAPIErrorMapperTests: XCTestCase {
   private let mapper = LemonSqueezyLicenseAPIErrorMapper()
 
   func testMap404ReturnsInvalidLicense() {
-    let error = mapper.map(statusCode: 404, responseData: nil)
-    XCTAssertEqual(error, .invalidLicense)
+    let limitPayload = Data(#"{"error":"Activation limit reached"}"#.utf8)
+    for payload in [nil, limitPayload] {
+      let error = mapper.map(statusCode: 404, responseData: payload)
+      XCTAssertEqual(error, .invalidLicense)
+    }
   }
 
-  func testMap422ActivationLimitMessagesReturnActivationLimitReached() {
+  func testMapClientErrorActivationLimitMessagesReturnActivationLimitReached() {
     let payloads = [
       Data(#"{"error":"This license key has reached the activation limit."}"#.utf8),
       Data(#"{"errors":[{"detail":"Activation limit reached"}]}"#.utf8),
     ]
 
-    for payload in payloads {
-      let error = mapper.map(statusCode: 422, responseData: payload)
-      XCTAssertEqual(error, .activationLimitReached)
+    for statusCode in [400, 409, 422] {
+      for payload in payloads {
+        let error = mapper.map(statusCode: statusCode, responseData: payload)
+        XCTAssertEqual(error, .activationLimitReached)
+      }
     }
   }
 
+  func testExpiredLicenseClientRejectionIsDefinitive() {
+    let payloads = [
+      Data(#"{"error":"Your license key is expired."}"#.utf8),
+      Data(#"{"errors":[{"detail":"The LICENSE KEY IS EXPIRED."}]}"#.utf8),
+    ]
+    for statusCode in [400, 409, 422] {
+      for payload in payloads {
+        XCTAssertEqual(mapper.map(statusCode: statusCode, responseData: payload), .invalidLicense)
+      }
+    }
+  }
+
+  func testExpiredMessageDoesNotOverrideRateLimitOrServerFailure() {
+    let payload = Data(#"{"error":"Your license key is expired."}"#.utf8)
+    for statusCode in [429, 500, 503] {
+      XCTAssertEqual(
+        mapper.map(statusCode: statusCode, responseData: payload),
+        .serverFailure(statusCode: statusCode)
+      )
+    }
+  }
+
+  func testUnrelatedExpiredRequestIsNotARejectedLicense() {
+    let payload = Data(
+      #"{"error":"The license request expired before validation completed."}"#.utf8)
+    XCTAssertEqual(
+      mapper.map(statusCode: 400, responseData: payload),
+      .requestFailure(message: "The license request expired before validation completed.")
+    )
+  }
+
   func testMap429ReturnsServerFailure() {
-    let error = mapper.map(statusCode: 429, responseData: nil)
-    XCTAssertEqual(error, .serverFailure(statusCode: 429))
+    let limitPayload = Data(#"{"error":"Activation limit reached"}"#.utf8)
+    for payload in [nil, limitPayload] {
+      let error = mapper.map(statusCode: 429, responseData: payload)
+      XCTAssertEqual(error, .serverFailure(statusCode: 429))
+    }
   }
 
   func testMap500ReturnsServerFailure() {
-    let error = mapper.map(statusCode: 500, responseData: nil)
-    XCTAssertEqual(error, .serverFailure(statusCode: 500))
+    let limitPayload = Data(#"{"error":"Activation limit reached"}"#.utf8)
+    for payload in [nil, limitPayload] {
+      let error = mapper.map(statusCode: 500, responseData: payload)
+      XCTAssertEqual(error, .serverFailure(statusCode: 500))
+    }
   }
 
   func testMap400WithMessageReturnsRequestFailure() {

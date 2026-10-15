@@ -43,6 +43,10 @@ Then depend on the products:
 
 - [LicenseKitLemonSqueezy API reference](https://swiftpackageindex.com/naviapps/license-kit-lemon-squeezy/documentation/licensekitlemonsqueezy)
 
+Local API catalogs for this checkout:
+
+- [LicenseKitLemonSqueezy](Sources/LicenseKitLemonSqueezy/LicenseKitLemonSqueezy.docc/LicenseKitLemonSqueezy.md)
+
 ## Usage
 
 Use `LemonSqueezyLicenseProvider` as the `LicenseProvider` for distributed
@@ -50,45 +54,35 @@ Apple apps. LicenseKit owns state, storage, refresh policy, and the public
 licensing state your UI reads.
 
 ```swift
-import Foundation
 import LicenseKit
 import LicenseKitLemonSqueezy
 
-struct SecureActivationStorage: LicenseActivationStorage {
-  func save(_ activation: LicenseActivation) throws {
-    // Store the encoded activation in your app's secure persistence layer.
-  }
-
-  func load() throws -> LicenseActivation? {
-    nil
-  }
-
-  func delete() throws {}
-}
-
-let provider = LemonSqueezyLicenseProvider(
-  configuration: LemonSqueezyLicenseProvider.Configuration(
-    activationInstanceName: "Example App",
-    licenseScope: LemonSqueezyLicenseProvider.LicenseScope(
-      storeID: "123",
-      productID: "456",
-      variantIDs: ["789"]
+@MainActor
+func makeLicenseManager() -> LicenseManager {
+  let provider = LemonSqueezyLicenseProvider(
+    configuration: LemonSqueezyLicenseProvider.Configuration(
+      activationInstanceName: "Example App",
+      licenseScope: LemonSqueezyLicenseProvider.LicenseScope(
+        storeID: "123",
+        productID: "456",
+        variantIDs: ["789"]
+      )
     )
   )
-)
-
-let licenseManager = LicenseManager(
-  provider: provider,
-  activationStorage: SecureActivationStorage()
-)
-
-let licenseKey = "AAAA-BBBB-CCCC"
-try await licenseManager.activate(.licenseKey(licenseKey))
-
-if licenseManager.isLicensed {
-  // Enable licensed app behavior.
+  return LicenseManager(
+    provider: provider,
+    activationStorage: KeychainLicenseActivationStorage(
+      service: "com.example.app.license",
+      account: "primary"
+    )
+  )
 }
 ```
+
+From the host's main-actor licensing flow, call
+`try await licenseManager.activate(.licenseKey(enteredLicenseKey))` and read
+`licenseManager.isLicensed`. The example identifiers are placeholders; provide
+scope values from the host's product configuration.
 
 `LicenseManager` restores persisted activations from `activationStorage` during
 initialization. Restoring from storage does not contact Lemon Squeezy by itself;
@@ -117,24 +111,58 @@ activation should be removed, such as during sign-out or device transfer.
 Validation and deactivation only accept activations whose source is
 `LemonSqueezyLicenseProvider.source`.
 
-Lemon Squeezy rate limits the License API. The provider retries `429` and
-server-error responses with `Retry-After` support and exponential backoff, but
-apps should still avoid tight refresh loops. Transport failures are surfaced to
-the caller instead of being retried automatically.
+Retries are bounded by `Configuration.maximumRequestAttempts`, including the first attempt.
+HTTP `429` responses may be retried for activation, validation, and deactivation.
+HTTP `5xx` responses are retried only for validation; activation and deactivation do not
+retry server errors because the remote operation may already have changed state.
+`Retry-After` is honored when valid; otherwise the delay uses exponential backoff.
+Transport failures are returned without automatic retry. Use `needsRefresh()` to schedule
+routine LicenseKit refreshes instead of a tight polling loop.
+
+Explicit client-error messages saying a license key is expired map to
+`LicenseProviderError.invalidLicense`, so LicenseKit removes the rejected
+activation instead of granting offline grace. HTTP `429` and `5xx` retain their
+recoverable rate-limit/server handling, and unrelated request errors retain
+their existing classification.
+
+Recognized activation-limit messages on client-error responses map to
+`LicenseProviderError.activationLimitReached`, including HTTP `400`, `409`, and `422`.
+HTTP `404` still reports an invalid license; `429` and `5xx` retain their rate-limit
+and server-failure handling.
+
+## Repository guide
+
+[Package.swift](Package.swift) defines products, target boundaries, platform requirements,
+and dependency resolution.
+
+| Target | Owns | Implementation and tests |
+| --- | --- | --- |
+| `LicenseKitLemonSqueezy` | License endpoint transport, provider mapping and scope checks | [Source](Sources/LicenseKitLemonSqueezy) · [Tests](Tests/LicenseKitLemonSqueezyTests) |
 
 ## Development
-
-Run the package check with:
 
 ```sh
 make check
 ```
 
-GitHub Actions runs the same check on pull requests and pushes to `main`.
+The gate runs strict Swift formatting, Debug and Release builds, and the test suite
+with complete concurrency checking and warnings as errors. CI runs the same gate.
+On macOS, XCTest and DocC validation require full Xcode developer tools. If the
+active developer directory is Command Line Tools, set `DEVELOPER_DIR` to the
+installed Xcode developer directory for the check command.
 
-The manifest resolves LicenseKit from GitHub by default. Set `LICENSE_KIT_PATH` to test against a
-local LicenseKit checkout. GitHub Actions uses this override to validate coordinated changes against
-the current LicenseKit repository.
+For a coordinated local dependency change:
+
+```sh
+LICENSE_KIT_PATH=../license-kit make check
+```
+
+Without that override, the manifest resolves the GitHub dependency. Verify the
+consumer's actual pinned revision separately from a check against local HEAD.
+
+See [AGENTS.md](AGENTS.md) for change guidance and [CONTRIBUTING.md](CONTRIBUTING.md)
+for contribution policy. Release history and private reporting stay in
+[CHANGELOG.md](CHANGELOG.md) and [SECURITY.md](SECURITY.md).
 
 ## Contributing
 
